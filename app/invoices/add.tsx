@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, TextInput, Alert } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { IconSymbol } from '@/components/IconSymbol';
@@ -22,6 +22,50 @@ export default function AddInvoiceScreen() {
     selectedTimeEntries: [] as string[],
   });
 
+  // Check if we have the prerequisites for creating an invoice
+  useEffect(() => {
+    console.log('Checking invoice prerequisites...');
+    console.log('Clients available:', clients.length);
+    console.log('Time entries available:', timeEntries.length);
+    
+    if (clients.length === 0) {
+      Alert.alert(
+        'No Clients Found',
+        'You need to create at least one client before creating an invoice. Would you like to create a client now?',
+        [
+          { text: 'Cancel', onPress: () => router.back() },
+          { 
+            text: 'Create Client', 
+            onPress: () => {
+              router.back();
+              router.push('/clients/add');
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    const completedTimeEntries = timeEntries.filter(entry => !entry.isRunning);
+    if (completedTimeEntries.length === 0) {
+      Alert.alert(
+        'No Time Entries Found',
+        'You need to have completed time entries to create an invoice. Please track some time first.',
+        [
+          { text: 'Cancel', onPress: () => router.back() },
+          { 
+            text: 'Track Time', 
+            onPress: () => {
+              router.back();
+              router.push('/(tabs)/time');
+            }
+          }
+        ]
+      );
+      return;
+    }
+  }, [clients.length, timeEntries.length]);
+
   const selectedClient = clients.find(c => c.id === formData.clientId);
   const availableTimeEntries = timeEntries.filter(entry => 
     entry.clientId === formData.clientId && !entry.isRunning
@@ -34,17 +78,31 @@ export default function AddInvoiceScreen() {
   const subtotal = selectedEntries.reduce((sum, entry) => 
     sum + (entry.duration / 60) * entry.hourlyRate, 0
   );
-  const taxAmount = subtotal * (parseFloat(formData.tax) / 100);
+  const taxAmount = subtotal * (parseFloat(formData.tax || '0') / 100);
   const total = subtotal + taxAmount;
 
   const handleSave = async () => {
-    if (!formData.clientId || formData.selectedTimeEntries.length === 0) {
-      Alert.alert('Missing Information', 'Please select a client and at least one time entry.');
+    console.log('Attempting to save invoice...');
+    console.log('Form data:', formData);
+    console.log('Selected entries:', selectedEntries.length);
+    
+    if (!formData.clientId) {
+      Alert.alert('Missing Information', 'Please select a client.');
+      return;
+    }
+
+    if (formData.selectedTimeEntries.length === 0) {
+      Alert.alert('Missing Information', 'Please select at least one time entry.');
+      return;
+    }
+
+    if (!formData.invoiceNumber.trim()) {
+      Alert.alert('Missing Information', 'Please enter an invoice number.');
       return;
     }
 
     try {
-      await addInvoice({
+      console.log('Creating invoice with data:', {
         clientId: formData.clientId,
         invoiceNumber: formData.invoiceNumber,
         status: 'draft',
@@ -56,19 +114,37 @@ export default function AddInvoiceScreen() {
         timeEntries: formData.selectedTimeEntries,
       });
 
-      console.log('Invoice created successfully');
-      router.back();
+      const newInvoice = await addInvoice({
+        clientId: formData.clientId,
+        invoiceNumber: formData.invoiceNumber,
+        status: 'draft',
+        issueDate: new Date(formData.issueDate),
+        dueDate: new Date(formData.dueDate),
+        subtotal,
+        tax: taxAmount,
+        total,
+        timeEntries: formData.selectedTimeEntries,
+      });
+
+      console.log('Invoice created successfully:', newInvoice);
+      Alert.alert(
+        'Success',
+        'Invoice created successfully!',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
     } catch (error) {
       console.log('Error creating invoice:', error);
-      Alert.alert('Error', 'Failed to create invoice.');
+      Alert.alert('Error', 'Failed to create invoice. Please try again.');
     }
   };
 
   const updateFormData = (field: string, value: any) => {
+    console.log(`Updating ${field} to:`, value);
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   const toggleTimeEntry = (entryId: string) => {
+    console.log('Toggling time entry:', entryId);
     setFormData(prev => ({
       ...prev,
       selectedTimeEntries: prev.selectedTimeEntries.includes(entryId)
@@ -105,6 +181,27 @@ export default function AddInvoiceScreen() {
     );
   };
 
+  // Don't render the form if we don't have prerequisites
+  if (clients.length === 0 || timeEntries.filter(entry => !entry.isRunning).length === 0) {
+    return (
+      <View style={commonStyles.container}>
+        <Stack.Screen 
+          options={{
+            title: 'Create Invoice',
+            headerLeft: () => (
+              <Pressable onPress={() => router.back()}>
+                <IconSymbol name="chevron.left" color={colors.text} size={24} />
+              </Pressable>
+            ),
+          }}
+        />
+        <View style={styles.loadingContainer}>
+          <Text style={commonStyles.text}>Checking prerequisites...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={commonStyles.container}>
       <Stack.Screen 
@@ -121,11 +218,12 @@ export default function AddInvoiceScreen() {
       <ScrollView style={commonStyles.content}>
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Invoice Number</Text>
+            <Text style={styles.label}>Invoice Number *</Text>
             <TextInput
               style={commonStyles.input}
               value={formData.invoiceNumber}
               onChangeText={(value) => updateFormData('invoiceNumber', value)}
+              placeholder="Enter invoice number"
             />
           </View>
 
@@ -186,15 +284,29 @@ export default function AddInvoiceScreen() {
 
           {formData.clientId && (
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Time Entries</Text>
+              <Text style={styles.label}>Time Entries *</Text>
               {availableTimeEntries.length === 0 ? (
                 <View style={styles.emptyState}>
-                  <Text style={commonStyles.textSecondary}>
-                    No unbilled time entries for this client
+                  <IconSymbol name="clock" color={colors.textSecondary} size={32} />
+                  <Text style={[commonStyles.textSecondary, { textAlign: 'center', marginTop: 8 }]}>
+                    No unbilled time entries for this client.{'\n'}
+                    Track some time first to create an invoice.
                   </Text>
+                  <Pressable 
+                    style={[commonStyles.button, { marginTop: 16 }]}
+                    onPress={() => {
+                      router.back();
+                      router.push('/(tabs)/time');
+                    }}
+                  >
+                    <Text style={commonStyles.buttonText}>Track Time</Text>
+                  </Pressable>
                 </View>
               ) : (
                 <View style={styles.timeEntriesList}>
+                  <Text style={[commonStyles.textSecondary, { marginBottom: 8 }]}>
+                    Select time entries to include in this invoice:
+                  </Text>
                   {availableTimeEntries.map(entry => (
                     <TimeEntryItem key={entry.id} entry={entry} />
                   ))}
@@ -251,10 +363,10 @@ export default function AddInvoiceScreen() {
               style={[
                 commonStyles.button, 
                 styles.button,
-                (!formData.clientId || formData.selectedTimeEntries.length === 0) && styles.buttonDisabled
+                (!formData.clientId || formData.selectedTimeEntries.length === 0 || !formData.invoiceNumber.trim()) && styles.buttonDisabled
               ]}
               onPress={handleSave}
-              disabled={!formData.clientId || formData.selectedTimeEntries.length === 0}
+              disabled={!formData.clientId || formData.selectedTimeEntries.length === 0 || !formData.invoiceNumber.trim()}
             >
               <Text style={commonStyles.buttonText}>Create Invoice</Text>
             </Pressable>
@@ -266,6 +378,12 @@ export default function AddInvoiceScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
   form: {
     paddingVertical: 20,
   },
@@ -409,7 +527,11 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 30,
+    backgroundColor: colors.backgroundAlt,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   buttonContainer: {
     flexDirection: 'row',

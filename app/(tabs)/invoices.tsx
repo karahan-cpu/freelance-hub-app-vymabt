@@ -6,10 +6,12 @@ import { IconSymbol } from '@/components/IconSymbol';
 import { colors, commonStyles } from '@/styles/commonStyles';
 import { useInvoices } from '@/hooks/useInvoices';
 import { useClients } from '@/hooks/useClients';
+import { useTimeEntries } from '@/hooks/useTimeEntries';
 
 export default function InvoicesScreen() {
   const { invoices, markAsPaid, deleteInvoice } = useInvoices();
   const { clients } = useClients();
+  const { timeEntries } = useTimeEntries();
   const [filter, setFilter] = useState<'all' | 'draft' | 'sent' | 'paid' | 'overdue'>('all');
 
   const getFilteredInvoices = () => {
@@ -39,6 +41,47 @@ export default function InvoicesScreen() {
     if (status === 'sent') return 'Sent';
     if (status === 'draft') return 'Draft';
     return status;
+  };
+
+  const handleCreateInvoice = () => {
+    console.log('Create invoice button pressed');
+    console.log('Clients available:', clients.length);
+    console.log('Time entries available:', timeEntries.length);
+    
+    // Check prerequisites before navigating
+    if (clients.length === 0) {
+      Alert.alert(
+        'No Clients Found',
+        'You need to create at least one client before creating an invoice. Would you like to create a client now?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Create Client', 
+            onPress: () => router.push('/clients/add')
+          }
+        ]
+      );
+      return;
+    }
+
+    const completedTimeEntries = timeEntries.filter(entry => !entry.isRunning);
+    if (completedTimeEntries.length === 0) {
+      Alert.alert(
+        'No Time Entries Found',
+        'You need to have completed time entries to create an invoice. Please track some time first.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Track Time', 
+            onPress: () => router.push('/(tabs)/time')
+          }
+        ]
+      );
+      return;
+    }
+
+    // All prerequisites met, navigate to create invoice
+    router.push('/invoices/add');
   };
 
   const handleMarkAsPaid = (invoiceId: string) => {
@@ -97,12 +140,19 @@ export default function InvoicesScreen() {
     return (
       <Pressable 
         style={[commonStyles.card, { borderLeftWidth: 4, borderLeftColor: statusColor }]}
-        onPress={() => router.push(`/invoices/${invoice.id}`)}
+        onPress={() => {
+          console.log('Invoice card pressed:', invoice.id);
+          // For now, just show invoice details in an alert
+          Alert.alert(
+            `Invoice #${invoice.invoiceNumber}`,
+            `Client: ${client?.name || 'Unknown'}\nAmount: $${invoice.total.toFixed(2)}\nStatus: ${statusText}\nDue: ${new Date(invoice.dueDate).toLocaleDateString()}`
+          );
+        }}
       >
         <View style={commonStyles.row}>
           <View style={{ flex: 1 }}>
             <Text style={styles.invoiceNumber}>#{invoice.invoiceNumber}</Text>
-            <Text style={commonStyles.textSecondary}>{client?.name}</Text>
+            <Text style={commonStyles.textSecondary}>{client?.name || 'Unknown Client'}</Text>
             <Text style={commonStyles.textSecondary}>
               Due: {new Date(invoice.dueDate).toLocaleDateString()}
             </Text>
@@ -154,7 +204,7 @@ export default function InvoicesScreen() {
           <Text style={commonStyles.title}>Invoices</Text>
           <Pressable 
             style={styles.addButton}
-            onPress={() => router.push('/invoices/add')}
+            onPress={handleCreateInvoice}
           >
             <IconSymbol name="plus" color="#ffffff" size={20} />
           </Pressable>
@@ -195,16 +245,23 @@ export default function InvoicesScreen() {
           {filteredInvoices.length === 0 ? (
             <View style={styles.emptyState}>
               <IconSymbol name="doc.text" color={colors.textSecondary} size={48} />
-              <Text style={styles.emptyTitle}>No Invoices Yet</Text>
-              <Text style={commonStyles.textSecondary}>
-                Create your first invoice to start billing clients
+              <Text style={styles.emptyTitle}>
+                {invoices.length === 0 ? 'No Invoices Yet' : `No ${filter === 'all' ? '' : filter} Invoices`}
               </Text>
-              <Pressable 
-                style={[commonStyles.button, { marginTop: 16 }]}
-                onPress={() => router.push('/invoices/add')}
-              >
-                <Text style={commonStyles.buttonText}>Create Invoice</Text>
-              </Pressable>
+              <Text style={[commonStyles.textSecondary, { textAlign: 'center', marginBottom: 16 }]}>
+                {invoices.length === 0 
+                  ? 'Create your first invoice to start billing clients'
+                  : `No invoices match the ${filter} filter`
+                }
+              </Text>
+              {invoices.length === 0 && (
+                <Pressable 
+                  style={[commonStyles.button, { marginTop: 16 }]}
+                  onPress={handleCreateInvoice}
+                >
+                  <Text style={commonStyles.buttonText}>Create Invoice</Text>
+                </Pressable>
+              )}
             </View>
           ) : (
             <View style={{ paddingBottom: 20 }}>
