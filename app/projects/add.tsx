@@ -20,9 +20,45 @@ export default function AddProjectScreen() {
     status: 'active' as 'active' | 'completed' | 'paused',
   });
 
+  // Check if there are no clients and show guidance
+  useEffect(() => {
+    if (clients.length === 0) {
+      Alert.alert(
+        'No Clients Found',
+        'You need to create at least one client before you can create a project. Would you like to create a client first?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => router.back()
+          },
+          {
+            text: 'Create Client',
+            onPress: () => {
+              router.back();
+              router.push('/clients/add');
+            }
+          }
+        ]
+      );
+    }
+  }, [clients.length]);
+
   const handleSave = async () => {
-    if (!formData.name.trim() || !formData.clientId) {
-      Alert.alert('Missing Information', 'Please fill in project name and select a client.');
+    console.log('Attempting to save project with data:', formData);
+    
+    if (!formData.name.trim()) {
+      Alert.alert('Missing Information', 'Please enter a project name.');
+      return;
+    }
+
+    if (!formData.clientId) {
+      Alert.alert('Missing Information', 'Please select a client.');
+      return;
+    }
+
+    if (clients.length === 0) {
+      Alert.alert('No Clients', 'Please create a client first before adding a project.');
       return;
     }
 
@@ -36,7 +72,7 @@ export default function AddProjectScreen() {
     }
 
     try {
-      await addProject({
+      const newProject = await addProject({
         name: formData.name.trim(),
         description: formData.description.trim(),
         clientId: formData.clientId,
@@ -44,19 +80,72 @@ export default function AddProjectScreen() {
         status: formData.status,
       });
 
-      console.log('Project added successfully');
-      router.back();
+      console.log('Project added successfully:', newProject);
+      Alert.alert('Success', 'Project created successfully!', [
+        {
+          text: 'OK',
+          onPress: () => router.back()
+        }
+      ]);
     } catch (error) {
       console.log('Error adding project:', error);
-      Alert.alert('Error', 'Failed to add project.');
+      Alert.alert('Error', 'Failed to create project. Please try again.');
     }
   };
 
   const updateFormData = (field: string, value: string) => {
+    console.log(`Updating ${field} to:`, value);
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   const selectedClient = clients.find(c => c.id === formData.clientId);
+
+  // If no clients exist, show a message instead of the form
+  if (clients.length === 0) {
+    return (
+      <View style={commonStyles.container}>
+        <Stack.Screen 
+          options={{
+            title: 'Add Project',
+            headerLeft: () => (
+              <Pressable onPress={() => router.back()}>
+                <IconSymbol name="chevron.left" color={colors.text} size={24} />
+              </Pressable>
+            ),
+          }}
+        />
+        
+        <View style={styles.emptyState}>
+          <IconSymbol name="person.2" color={colors.textSecondary} size={64} />
+          <Text style={styles.emptyTitle}>No Clients Found</Text>
+          <Text style={[commonStyles.textSecondary, styles.emptyDescription]}>
+            You need to create at least one client before you can create a project.
+          </Text>
+          
+          <View style={styles.buttonContainer}>
+            <Pressable 
+              style={[commonStyles.button, styles.button]}
+              onPress={() => {
+                router.back();
+                router.push('/clients/add');
+              }}
+            >
+              <Text style={commonStyles.buttonText}>Create Client First</Text>
+            </Pressable>
+            
+            <Pressable 
+              style={[commonStyles.buttonSecondary, commonStyles.button, styles.button]}
+              onPress={() => router.back()}
+            >
+              <Text style={[commonStyles.buttonSecondaryText, commonStyles.buttonText]}>
+                Go Back
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={commonStyles.container}>
@@ -77,7 +166,7 @@ export default function AddProjectScreen() {
             <Text style={styles.label}>Project Name *</Text>
             <TextInput
               style={commonStyles.input}
-              placeholder="Project name"
+              placeholder="Enter project name"
               placeholderTextColor={colors.textSecondary}
               value={formData.name}
               onChangeText={(value) => updateFormData('name', value)}
@@ -119,7 +208,7 @@ export default function AddProjectScreen() {
             <Text style={styles.label}>Description</Text>
             <TextInput
               style={[commonStyles.input, styles.textArea]}
-              placeholder="Project description"
+              placeholder="Project description (optional)"
               placeholderTextColor={colors.textSecondary}
               value={formData.description}
               onChangeText={(value) => updateFormData('description', value)}
@@ -289,5 +378,25 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 20,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  emptyDescription: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
   },
 });
